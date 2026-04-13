@@ -197,7 +197,7 @@ def ocr_frame_names(frame_path: str) -> str:
     return text.replace("\n", "~").strip()
 
 
-def run_ocr(ocr_dir: str, fps: float):
+def run_ocr(ocr_dir: str, fps: float, progress_cb=None):
     """Run OCR on all extracted frames and save results."""
     right_dir = os.path.join(ocr_dir, "right")
     left_dir = os.path.join(ocr_dir, "left")
@@ -206,12 +206,15 @@ def run_ocr(ocr_dir: str, fps: float):
         f for f in os.listdir(right_dir) if f.startswith("frame_") and f.endswith(".png")
     )
 
-    log(f"OCR pass on {len(frames)} right scoreboard frames (dual pass)...")
+    total = len(frames)
+    log(f"OCR pass on {total} right scoreboard frames (dual pass)...")
     pj_lines = []
     state_lines = []
     for i, fname in enumerate(frames):
         if (i + 1) % 100 == 0:
-            log(f"  ...frame {i + 1}/{len(frames)}")
+            log(f"  ...frame {i + 1}/{total}")
+        if progress_cb:
+            progress_cb("ocr_right", i + 1, total, f"OCR right scoreboard: {i + 1}/{total}")
         fpath = os.path.join(right_dir, fname)
         frame_num = int(fname.replace("frame_", "").replace(".png", ""))
 
@@ -230,11 +233,14 @@ def run_ocr(ocr_dir: str, fps: float):
     left_frames = sorted(
         f for f in os.listdir(left_dir) if f.startswith("frame_") and f.endswith(".png")
     )
-    log(f"OCR pass on {len(left_frames)} left scoreboard frames...")
+    total_left = len(left_frames)
+    log(f"OCR pass on {total_left} left scoreboard frames...")
     left_lines = []
     for i, fname in enumerate(left_frames):
         if (i + 1) % 100 == 0:
-            log(f"  ...frame {i + 1}/{len(left_frames)}")
+            log(f"  ...frame {i + 1}/{total_left}")
+        if progress_cb:
+            progress_cb("ocr_left", i + 1, total_left, f"OCR left scoreboard: {i + 1}/{total_left}")
         fpath = os.path.join(left_dir, fname)
         frame_num = int(fname.replace("frame_", "").replace(".png", ""))
         text = ocr_frame_names(fpath)
@@ -662,7 +668,108 @@ def write_chapters(
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Pipeline (shared by CLI and web UI)
+# ---------------------------------------------------------------------------
+
+def run_pipeline(
+    video_path: str,
+    output_path: str,
+    ocr_dir: str,
+    fps: float = 1 / 3,
+    include_lineups: bool = True,
+    include_period_clock: bool = True,
+    team1: str = "Team 1",
+    team2: str = "Team 2",
+    reprocess: bool = False,
+    progress_cb=None,
+) -> str:
+    """
+    Run the full indexing pipeline.
+
+    Args:
+        progress_cb: Optional callback(phase, current, total, message).
+                     phase is one of: probe, extract, ocr_right, ocr_left,
+                     timeline, clocks, names, output, done.
+    Returns:
+        The generated chapters text.
+    """
+    frame_interval = 1.0 / fps
+
+    def emit(phase, current, total, msg):
+        log(msg)
+        if progress_cb:
+            progress_cb(phase, current, total, msg)
+
+    # Phase 1: Frame extraction
+    emit("probe", 0, 1, "Probing video...")
+    video_info = probe_video(video_path)
+    emit("probe", 1, 1,
+         f"Resolution: {video_info['width']}x{video_info['height']}, "
+         f"Duration: {fmt_ts(int(video_info['duration']))}")
+
+    if reprocess and os.path.exists(ocr_dir):
+        emit("extract", 1, 1, "Reprocessing: skipping frame extraction.")
+    else:
+        emit("extract", 0, 1, "Extracting frames...")
+        extract_frames(video_path, ocr_dir, fps, video_info)
+        emit("extract", 1, 1, "Frame extraction complete.")
+
+    low_res = video_info["height"] < 720
+    if low_res and include_lineups:
+        emit("extract", 1, 1,
+             "WARNING: Resolution below 720p — lineup parsing unsupported, skipping.")
+        include_lineups = False
+
+    # Phase 2: OCR
+    pj_ocr_path = os.path.join(ocr_dir, "right_pj_ocr.txt")
+    if reprocess and os.path.exists(pj_ocr_path):
+        emit("ocr_right", 1, 1, "Reprocessing: skipping OCR.")
+    else:
+        run_ocr(ocr_dir, fps, progress_cb=progress_cb)
+
+    # Phase 3: Timeline
+    emit("timeline", 0, 1, "Building timeline...")
+    timeline = build_timeline(ocr_dir, frame_interval)
+    jam_count = len(timeline["jams"])
+    timeout_count = sum(1 for c in timeline["chapters"] if c["type"] == "TIMEOUT")
+    emit("timeline", 1, 1, f"Found {jam_count} jams, {timeout_count} timeouts")
+
+    # Phase 4: Period clocks
+    if include_period_clock:
+        emit("clocks", 0, 1, "Reading period clocks...")
+        read_period_clocks(ocr_dir, timeline["chapters"], frame_interval)
+        emit("clocks", 1, 1, "Period clocks done.")
+
+    # Phase 5: Names
+    if include_lineups:
+        emit("names", 0, 1, "Reading player names...")
+        read_names(ocr_dir, timeline, frame_interval)
+        emit("names", 1, 1, "Player names done.")
+
+    # Phase 6: Output
+    emit("output", 0, 1, f"Writing chapters to {output_path}...")
+    result = write_chapters(
+        timeline["chapters"],
+        output_path,
+        team1_name=team1,
+        team2_name=team2,
+        include_lineups=include_lineups,
+        include_period_clock=include_period_clock,
+    )
+
+    # Summary
+    periods = set(c["p"] for c in timeline["chapters"])
+    for p in sorted(periods):
+        p_jams = sum(1 for c in timeline["chapters"] if c["p"] == p and c["type"] == "JAM")
+        p_tos = sum(1 for c in timeline["chapters"] if c["p"] == p and c["type"] == "TIMEOUT")
+        emit("done", 1, 1, f"Period {p}: {p_jams} jams, {p_tos} timeouts")
+
+    emit("done", 1, 1, f"Done! Chapters written to: {output_path}")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# CLI Main
 # ---------------------------------------------------------------------------
 
 def main():
@@ -676,34 +783,13 @@ def main():
         "--fps", type=float, default=1 / 3,
         help="Frame sampling rate in fps (default: 0.333 = 1 frame per 3 seconds)",
     )
-    parser.add_argument(
-        "--no-lineups", action="store_true",
-        help="Disable jam lineup output",
-    )
-    parser.add_argument(
-        "--no-period-clock", action="store_true",
-        help="Disable period clock output",
-    )
-    parser.add_argument(
-        "--output", type=str, default=None,
-        help="Output chapters file (default: <video_basename> Chapters.txt)",
-    )
-    parser.add_argument(
-        "--ocr-dir", type=str, default=None,
-        help="OCR data directory (default: <video_basename> OCR/)",
-    )
-    parser.add_argument(
-        "--reprocess", action="store_true",
-        help="Skip frame extraction, reuse existing OCR directory",
-    )
-    parser.add_argument(
-        "--team1", type=str, default=None,
-        help="Name of team 1 (top row on scoreboard)",
-    )
-    parser.add_argument(
-        "--team2", type=str, default=None,
-        help="Name of team 2 (bottom row on scoreboard)",
-    )
+    parser.add_argument("--no-lineups", action="store_true", help="Disable lineup output")
+    parser.add_argument("--no-period-clock", action="store_true", help="Disable period clock")
+    parser.add_argument("--output", type=str, default=None, help="Output chapters file")
+    parser.add_argument("--ocr-dir", type=str, default=None, help="OCR data directory")
+    parser.add_argument("--reprocess", action="store_true", help="Reuse existing OCR data")
+    parser.add_argument("--team1", type=str, default=None, help="Team 1 name (top row)")
+    parser.add_argument("--team2", type=str, default=None, help="Team 2 name (bottom row)")
 
     args = parser.parse_args()
 
@@ -714,7 +800,6 @@ def main():
 
     video_dir = os.path.dirname(video_path)
     video_stem = Path(video_path).stem
-
     output_path = os.path.realpath(
         args.output or os.path.join(video_dir, f"{video_stem} Chapters.txt")
     )
@@ -722,80 +807,24 @@ def main():
         args.ocr_dir or os.path.join(video_dir, f"{video_stem} OCR")
     )
 
-    frame_interval = 1.0 / args.fps  # seconds per frame
-
     print(f"nws-bout-indexer")
     print(f"  Video:  {video_path}")
     print(f"  Output: {output_path}")
     print(f"  OCR:    {ocr_dir}")
-    print(f"  FPS:    {args.fps} ({frame_interval:.1f}s per frame)")
+    print(f"  FPS:    {args.fps} ({1.0/args.fps:.1f}s per frame)")
     print()
 
-    # Phase 1: Frame extraction
-    if args.reprocess and os.path.exists(ocr_dir):
-        log("Reprocessing: skipping frame extraction, using existing OCR data.")
-        video_info = probe_video(video_path)
-    else:
-        log("Probing video...")
-        video_info = probe_video(video_path)
-        log(f"Resolution: {video_info['width']}x{video_info['height']}, "
-            f"Duration: {fmt_ts(int(video_info['duration']))}")
-
-        extract_frames(video_path, ocr_dir, args.fps, video_info)
-
-    low_res = video_info["height"] < 720
-    if low_res and not args.no_lineups:
-        log("WARNING: Video resolution below 720p — lineup parsing is unsupported "
-            "and will be skipped. Use --no-lineups to suppress this warning.")
-        args.no_lineups = True
-
-    # Phase 2: OCR
-    pj_ocr_path = os.path.join(ocr_dir, "right_pj_ocr.txt")
-    if args.reprocess and os.path.exists(pj_ocr_path):
-        log("Reprocessing: skipping OCR, using existing OCR results.")
-    else:
-        run_ocr(ocr_dir, args.fps)
-
-    # Phase 3: Timeline construction
-    log("Building timeline...")
-    timeline = build_timeline(ocr_dir, frame_interval)
-    jam_count = len(timeline["jams"])
-    timeout_count = sum(1 for c in timeline["chapters"] if c["type"] == "TIMEOUT")
-    log(f"Found {jam_count} jams, {timeout_count} timeouts")
-
-    # Phase 4: Period clocks
-    if not args.no_period_clock:
-        log("Reading period clocks...")
-        read_period_clocks(ocr_dir, timeline["chapters"], frame_interval)
-
-    # Phase 5: Names
-    if not args.no_lineups:
-        log("Reading player names...")
-        read_names(ocr_dir, timeline, frame_interval)
-
-    # Phase 6: Output
-    team1 = args.team1 or "Team 1"
-    team2 = args.team2 or "Team 2"
-
-    log(f"Writing chapters to {output_path}...")
-    write_chapters(
-        timeline["chapters"],
-        output_path,
-        team1_name=team1,
-        team2_name=team2,
+    run_pipeline(
+        video_path=video_path,
+        output_path=output_path,
+        ocr_dir=ocr_dir,
+        fps=args.fps,
         include_lineups=not args.no_lineups,
         include_period_clock=not args.no_period_clock,
+        team1=args.team1 or "Team 1",
+        team2=args.team2 or "Team 2",
+        reprocess=args.reprocess,
     )
-
-    # Count periods
-    periods = set(c["p"] for c in timeline["chapters"])
-    for p in sorted(periods):
-        p_jams = sum(1 for c in timeline["chapters"] if c["p"] == p and c["type"] == "JAM")
-        p_tos = sum(1 for c in timeline["chapters"] if c["p"] == p and c["type"] == "TIMEOUT")
-        log(f"Period {p}: {p_jams} jams, {p_tos} timeouts")
-
-    print()
-    print(f"Done! Chapters written to: {output_path}")
 
 
 if __name__ == "__main__":

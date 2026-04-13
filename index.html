@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nws-bout-indexer</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --card: #0f3460;
+    --accent: #e94560;
+    --text: #eee;
+    --muted: #888;
+    --success: #4ecca3;
+    --bar-bg: #2a2a4a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+  .container { width: 100%; max-width: 700px; }
+  h1 {
+    font-size: 1.5rem;
+    margin-bottom: 0.25rem;
+    color: var(--accent);
+  }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  .card {
+    background: var(--surface);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  input[type="text"], select {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid #333;
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.95rem;
+    margin-bottom: 0.75rem;
+  }
+  input[type="text"]:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .row { display: flex; gap: 0.75rem; }
+  .row > * { flex: 1; }
+
+  .checks {
+    display: flex;
+    gap: 1.5rem;
+    margin: 0.5rem 0;
+  }
+  .checks label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    text-transform: none;
+    font-size: 0.9rem;
+    color: var(--text);
+    cursor: pointer;
+  }
+  input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 16px;
+    height: 16px;
+  }
+
+  .btn {
+    display: inline-block;
+    padding: 0.7rem 2rem;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 0.5rem;
+    transition: opacity 0.2s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Progress */
+  #progress-section { display: none; }
+  #progress-section.active { display: block; }
+
+  .phase-label {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 0.4rem;
+  }
+  .phase-label span { color: var(--text); font-weight: 600; }
+
+  .progress-bar {
+    width: 100%;
+    height: 22px;
+    background: var(--bar-bg);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 0.75rem;
+    position: relative;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.3s ease;
+    border-radius: 4px;
+  }
+  .progress-fill.done { background: var(--success); }
+  .progress-text {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+
+  .log-box {
+    background: var(--bg);
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+    max-height: 120px;
+    overflow-y: auto;
+    margin-top: 0.5rem;
+    line-height: 1.5;
+  }
+
+  /* Output */
+  #output-section { display: none; }
+  #output-section.active { display: block; }
+
+  .output-box {
+    background: var(--bg);
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 0.75rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.8rem;
+    color: var(--text);
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    line-height: 1.6;
+  }
+  .copy-btn {
+    float: right;
+    padding: 0.3rem 0.8rem;
+    background: var(--card);
+    color: var(--muted);
+    border: 1px solid #555;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+  .copy-btn:hover { color: var(--text); border-color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>nws-bout-indexer</h1>
+  <p class="subtitle">Generate YouTube chapters from roller derby bout footage</p>
+
+  <!-- Config -->
+  <div class="card">
+    <label for="video">Video file path</label>
+    <input type="text" id="video" placeholder="/path/to/bout.mkv">
+
+    <div class="row">
+      <div>
+        <label for="team1">Team 1 (top row)</label>
+        <input type="text" id="team1" placeholder="Team 1">
+      </div>
+      <div>
+        <label for="team2">Team 2 (bottom row)</label>
+        <input type="text" id="team2" placeholder="Team 2">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="fps">Frame sampling</label>
+        <select id="fps">
+          <option value="0.333" selected>1 frame / 3 sec (default)</option>
+          <option value="0.5">1 frame / 2 sec</option>
+          <option value="1">1 frame / sec</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="checks">
+      <label><input type="checkbox" id="lineups" checked> Include lineups</label>
+      <label><input type="checkbox" id="period-clock" checked> Include period clock</label>
+      <label><input type="checkbox" id="reprocess"> Reprocess (skip extraction)</label>
+    </div>
+
+    <button class="btn" id="run-btn" onclick="startJob()">Run Indexer</button>
+  </div>
+
+  <!-- Progress -->
+  <div class="card" id="progress-section">
+    <div class="phase-label">Phase: <span id="phase-name">Starting...</span></div>
+
+    <div class="progress-bar">
+      <div class="progress-fill" id="step-fill" style="width:0%"></div>
+      <div class="progress-text" id="step-text"></div>
+    </div>
+
+    <div class="phase-label">Overall</div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="overall-fill" style="width:0%"></div>
+      <div class="progress-text" id="overall-text"></div>
+    </div>
+
+    <div class="log-box" id="log-box"></div>
+  </div>
+
+  <!-- Output -->
+  <div class="card" id="output-section">
+    <button class="copy-btn" onclick="copyOutput()">Copy</button>
+    <label>Chapters output</label>
+    <div class="output-box" id="output-box"></div>
+  </div>
+
+</div>
+
+<script>
+const PHASES = ['probe','extract','ocr_right','ocr_left','timeline','clocks','names','output','done'];
+const PHASE_LABELS = {
+  probe: 'Probing video',
+  extract: 'Extracting frames',
+  ocr_right: 'OCR — right scoreboard',
+  ocr_left: 'OCR — left scoreboard',
+  timeline: 'Building timeline',
+  clocks: 'Reading period clocks',
+  names: 'Reading player names',
+  output: 'Writing output',
+  done: 'Done',
+  error: 'Error',
+};
+
+let eventSource = null;
+
+function startJob() {
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+
+  document.getElementById('progress-section').classList.add('active');
+  document.getElementById('output-section').classList.remove('active');
+  document.getElementById('log-box').innerHTML = '';
+  document.getElementById('step-fill').style.width = '0%';
+  document.getElementById('step-fill').classList.remove('done');
+  document.getElementById('overall-fill').style.width = '0%';
+  document.getElementById('overall-fill').classList.remove('done');
+
+  const params = {
+    video: document.getElementById('video').value,
+    team1: document.getElementById('team1').value,
+    team2: document.getElementById('team2').value,
+    fps: parseFloat(document.getElementById('fps').value),
+    include_lineups: document.getElementById('lineups').checked,
+    include_period_clock: document.getElementById('period-clock').checked,
+    reprocess: document.getElementById('reprocess').checked,
+  };
+
+  fetch('/api/run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(params),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) {
+      addLog('ERROR: ' + data.error);
+      btn.disabled = false;
+      btn.textContent = 'Run Indexer';
+      return;
+    }
+    listenProgress(data.job_id);
+  })
+  .catch(err => {
+    addLog('ERROR: ' + err);
+    btn.disabled = false;
+    btn.textContent = 'Run Indexer';
+  });
+}
+
+function listenProgress(jobId) {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource('/api/progress/' + jobId);
+
+  eventSource.onmessage = function(e) {
+    const data = JSON.parse(e.data);
+    updateProgress(data);
+
+    if (data.phase === 'done' || data.phase === 'error') {
+      eventSource.close();
+      eventSource = null;
+
+      const btn = document.getElementById('run-btn');
+      btn.disabled = false;
+      btn.textContent = 'Run Indexer';
+
+      if (data.phase === 'done') {
+        document.getElementById('step-fill').classList.add('done');
+        document.getElementById('overall-fill').classList.add('done');
+        fetchResult(jobId);
+      }
+    }
+  };
+
+  eventSource.onerror = function() {
+    eventSource.close();
+    eventSource = null;
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-btn').textContent = 'Run Indexer';
+  };
+}
+
+function updateProgress(data) {
+  const { phase, current, total, message } = data;
+
+  // Phase label
+  document.getElementById('phase-name').textContent = PHASE_LABELS[phase] || phase;
+
+  // Step progress
+  if (total > 0) {
+    const pct = Math.round((current / total) * 100);
+    document.getElementById('step-fill').style.width = pct + '%';
+    document.getElementById('step-text').textContent = total > 1 ? `${current} / ${total}` : '';
+  }
+
+  // Overall progress
+  const phaseIdx = PHASES.indexOf(phase);
+  if (phaseIdx >= 0) {
+    const overallPct = Math.round(((phaseIdx + 1) / PHASES.length) * 100);
+    document.getElementById('overall-fill').style.width = overallPct + '%';
+    document.getElementById('overall-text').textContent = `Phase ${phaseIdx + 1} / ${PHASES.length}`;
+  }
+
+  addLog(message);
+}
+
+function addLog(msg) {
+  const box = document.getElementById('log-box');
+  box.textContent += msg + '\n';
+  box.scrollTop = box.scrollHeight;
+}
+
+function fetchResult(jobId) {
+  fetch('/api/result/' + jobId)
+    .then(r => r.json())
+    .then(data => {
+      if (data.result) {
+        document.getElementById('output-section').classList.add('active');
+        document.getElementById('output-box').textContent = data.result;
+      }
+    });
+}
+
+function copyOutput() {
+  const text = document.getElementById('output-box').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  });
+}
+</script>
+</body>
+</html>
