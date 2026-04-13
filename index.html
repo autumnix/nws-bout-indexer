@@ -181,6 +181,23 @@
     cursor: pointer;
   }
   .copy-btn:hover { color: var(--text); border-color: var(--accent); }
+
+  .help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    border: 1px solid var(--muted);
+    color: var(--muted);
+    font-size: 0.65rem;
+    font-weight: 700;
+    cursor: help;
+    vertical-align: middle;
+    margin-left: 2px;
+  }
+  .help-icon:hover { border-color: var(--accent); color: var(--accent); }
 </style>
 </head>
 <body>
@@ -219,7 +236,7 @@
     <div class="checks">
       <label><input type="checkbox" id="lineups" checked> Include lineups</label>
       <label><input type="checkbox" id="period-clock" checked> Include period clock</label>
-      <label title="Skip frame extraction and re-use existing OCR data from a previous run. Useful if you've already indexed this video once and want to re-run with different options (e.g. toggle lineups or period clock) without waiting for frames to be extracted and OCR'd again."><input type="checkbox" id="reprocess"> Reprocess</label>
+      <label><input type="checkbox" id="reprocess"> Reprocess (skip extraction) <span class="help-icon" title="Re-use existing OCR data from a previous run. Useful if you've already indexed this video once and want to re-run with different options (e.g. toggle lineups or period clock) without waiting for frames to be extracted and OCR'd again.">?</span></label>
     </div>
 
     <button class="btn" id="run-btn" onclick="startJob()">Run Indexer</button>
