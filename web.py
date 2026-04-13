@@ -14,6 +14,14 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
+# tkinter for native file dialog (included with Python on macOS)
+try:
+    import tkinter as tk
+    from tkinter import filedialog
+    HAS_TK = True
+except ImportError:
+    HAS_TK = False
+
 from bout_indexer import run_pipeline
 
 PORT = 9000
@@ -31,6 +39,8 @@ class Handler(SimpleHTTPRequestHandler):
 
         if path == "/":
             self._serve_file("index.html", "text/html")
+        elif path == "/api/browse":
+            self._browse_file()
         elif path.startswith("/api/progress/"):
             job_id = path.split("/")[-1]
             self._stream_progress(job_id)
@@ -49,6 +59,36 @@ class Handler(SimpleHTTPRequestHandler):
             self._start_job(body)
         else:
             self.send_error(404)
+
+    def _browse_file(self):
+        """Open a native file dialog and return the selected path."""
+        if not HAS_TK:
+            self._json_response(500, {"error": "tkinter not available"})
+            return
+
+        selected = [None]
+
+        def pick():
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            path = filedialog.askopenfilename(
+                title="Select bout video",
+                filetypes=[
+                    ("Video files", "*.mkv *.mp4 *.avi *.mov *.webm *.flv"),
+                    ("All files", "*.*"),
+                ],
+            )
+            selected[0] = path
+            root.destroy()
+
+        # tkinter must run on the main thread on macOS, but we're in a
+        # request handler thread.  Run it in a separate thread and wait.
+        t = threading.Thread(target=pick)
+        t.start()
+        t.join(timeout=120)
+
+        self._json_response(200, {"path": selected[0] or ""})
 
     def _serve_file(self, filename, content_type):
         filepath = os.path.join(SCRIPT_DIR, filename)
