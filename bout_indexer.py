@@ -584,14 +584,44 @@ def read_names(ocr_dir: str, timeline: dict, frame_interval: float):
 # Phase 6: Output formatting
 # ---------------------------------------------------------------------------
 
-def detect_team_names(ocr_dir: str) -> tuple:
-    """Try to detect team names from the left scoreboard OCR."""
-    left_path = os.path.join(ocr_dir, "left_ocr.txt")
-    if not os.path.exists(left_path):
-        return "Team 1", "Team 2"
+def detect_team_names(video_path: str) -> tuple:
+    """Detect team names by OCR-ing the top-left scoreboard area."""
+    import tempfile
 
-    # The left frames show team names before the dark jammer area
-    # For now, return placeholders — the user can override
+    # Extract a single frame from ~30s in (past any intro/highlight)
+    # Crop the team name area: leftmost ~14% width, top ~8% height
+    info = probe_video(video_path)
+    w, h = info["width"], info["height"]
+    cw = int(w * 0.14)
+    ch = int(h * 0.08)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Try a few timestamps to find one with readable names
+        for ss in [30, 60, 90, 120]:
+            frame_path = os.path.join(tmpdir, f"team_{ss}.png")
+            subprocess.run(
+                ["ffmpeg", "-ss", str(ss), "-i", video_path,
+                 "-vframes", "1", "-vf", f"crop={cw}:{ch}:0:0,scale={cw*2}:{ch*2}",
+                 "-q:v", "1", frame_path],
+                capture_output=True,
+            )
+            if not os.path.exists(frame_path):
+                continue
+
+            result = subprocess.run(
+                ["tesseract", frame_path, "stdout", "--psm", "6"],
+                capture_output=True, timeout=10,
+            )
+            text = result.stdout.decode("utf-8", errors="replace")
+            lines = [l.strip() for l in text.splitlines() if l.strip() and len(l.strip()) > 2]
+            # Filter out numbers-only lines (scores)
+            names = [l for l in lines if not re.match(r"^[\d\s.:]+$", l)]
+
+            if len(names) >= 2:
+                log(f"Detected teams: '{names[0]}' vs '{names[1]}'")
+                return names[0], names[1]
+
+    log("Could not auto-detect team names, using defaults.")
     return "Team 1", "Team 2"
 
 
@@ -745,6 +775,15 @@ def run_pipeline(
         emit("names", 0, 1, "Reading player names...")
         read_names(ocr_dir, timeline, frame_interval)
         emit("names", 1, 1, "Player names done.")
+
+    # Auto-detect team names if not provided
+    if team1 == "Team 1" or team2 == "Team 2":
+        emit("output", 0, 1, "Detecting team names...")
+        detected1, detected2 = detect_team_names(video_path)
+        if team1 == "Team 1":
+            team1 = detected1
+        if team2 == "Team 2":
+            team2 = detected2
 
     # Phase 6: Output
     emit("output", 0, 1, f"Writing chapters to {output_path}...")
