@@ -1,0 +1,72 @@
+Bout Post-Processing Specs
+==========================
+
+1. CHAPTER TIMESTAMP PLACEMENT
+   - Jam 1 of each period: chapter starts at the earliest frame where the jam timer
+     shows 2:00 under J1.
+   - Jam N (N>1): chapter starts at the first frame where the new jam number J<N>
+     and the LINEUP banner appear together.
+   - Jams following a timeout: chapter starts when the POST TIMEOUT banner first
+     appears. The jam number won't be shown during POST TIMEOUT but will appear
+     once the jam begins.
+
+2. TIMEOUT CHAPTERS
+   - Official Timeout, Team Timeout, Timeout, and any other text that appears in
+     the red/colored banner are each separate chapter entries.
+   - Chapter timestamp is when the timeout banner first appears on the scoreboard.
+
+3. SCOREBOARD LAYOUT
+   - Right side: Period (P<N>), Jam (J<N>), period clock, jam clock, and state
+     banners (LINEUP, COMING UP, TEAM TIMEOUT, OFFICIAL TIMEOUT, POST TIMEOUT,
+     HIGHLIGHT, etc.).
+   - Left side: Team names, scores, and player names. The first (left-most) column
+     after the score shows the Jammer (marked with a star). Subsequent columns show
+     blockers/pivot.
+   - Period clock is directly under P<N> (and any banners). It is to the LEFT of the
+     jam clock.
+
+4. HIGHLIGHT FRAMES
+   - During a jam, a HIGHLIGHT banner can overlay the scoreboard. These frames must
+     be skipped when reading names or scoreboard state. Seek past them to find the
+     actual data.
+
+5. PLAYER NAME READING
+   - The Jammer is always the first (left-most) name and will have a star at the
+     start of a jam. Mid-jam the star might move to a blocker if the jammer passes
+     to the pivot.
+   - Names may load late. Seek forward through frames during the jam to find when
+     names appear. Use the earliest chapter timestamp but the later frame for names.
+   - The number of visible player columns varies by bout/software configuration.
+     Common configurations:
+       Jammer* | Pivot
+       Jammer* | Pivot | Blocker1 | Blocker2 | Blocker3
+   - If a jammer name stays empty but a pivot is shown, render as:
+       <Team>: * | <Pivot Name>
+   - If a name column stays empty for the entire jam, omit it (no placeholder).
+
+6. CHAPTER FORMAT
+   Period <N>:
+   HH:MM:SS P<N>J<NN> [<Period Clock as NNmNNs>]
+   <Team 1>: <Jammer>* | <Blocker 1>
+   <Team 2>: <Jammer>* | <Blocker 1>
+
+   HH:MM:SS <Timeout Type> [<Period Clock as NNmNNs>]
+
+   HH:MM:SS P<N>J<NN> (Post Timeout) [<Period Clock as NNmNNs>]
+   <Team 1>: <Jammer>* | <Blocker 1>
+   <Team 2>: <Jammer>* | <Blocker 1>
+
+   - Jam numbers are zero-padded (01, 02, etc.) for column alignment.
+   - Jams following a timeout are annotated with (Post Timeout).
+   - Period clock value is read from the scoreboard at the chapter timestamp.
+
+7. SAMPLING
+   - Extract frames every 3 seconds; sufficient to catch all transitions within
+     +/-3s accuracy.
+
+8. OCR DATA STORAGE
+   - Store intermediate OCR data in a named folder (e.g., "Game 1 OCR/") for
+     easier reprocessing.
+   - Suggested subfolders:
+       right/   - right scoreboard crops (P/J, state, period clock)
+       left/    - left scoreboard crops (player names)

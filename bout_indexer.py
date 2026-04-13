@@ -1,0 +1,729 @@
+#!/usr/bin/env python3
+"""
+nws-bout-indexer: Generate YouTube chapter markers from roller derby bout footage.
+
+Scans the scoreboard overlay in a bout video via OCR and produces a chapters file
+with jam timestamps, lineups, period clocks, and timeout markers.
+
+See 'Bout Post Processing Specs.txt' for the full specification.
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import Optional
+
+from PIL import Image, ImageOps
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Proportional crop regions (relative to video width/height)
+# Right scoreboard: P/J, state banners, period clock, jam clock
+RIGHT_CROP = {"x": 0.844, "y": 0.0, "w": 0.156, "h": 0.083}
+# Left scoreboard: jammer + pivot names (past team name / score columns)
+LEFT_CROP = {"x": 0.109, "y": 0.0, "w": 0.547, "h": 0.076}
+
+# Output scale for OCR readability
+RIGHT_SCALE = (800, 240)
+LEFT_SCALE = (1400, 220)
+
+# Common OCR mis-reads for period numbers
+PERIOD_FIXES = {7: 1, 11: 1, 17: 1, 71: 1, 1386: 1, 18: 1, 22: 2}
+
+# State detection keywords, checked in priority order
+STATE_KEYWORDS = [
+    ("HIGHLIGHT", ["HIGHLIGHT"]),
+    ("OFFICIAL TIMEOUT", ["OFFICIAL TIMEOUT", "OFFICIALTIMEOUT", "SOFEIGIAL TIMEOUT"]),
+    ("TEAM TIMEOUT", ["TEAM TIMEOUT", "TEAMTIMEOUT"]),
+    ("POST TIMEOUT", ["POST TIMEOUT", "POSTTIMEOUT", "POST TIMEOU", "POST TRAEOU"]),
+    ("TIMEOUT", ["TIMEOUT"]),
+    ("LINEUP", ["LINEUP"]),
+    ("COMING UP", ["COMING UP", "COMINGUP"]),
+]
+
+
+# ---------------------------------------------------------------------------
+# Utilities
+# ---------------------------------------------------------------------------
+
+def fmt_ts(seconds: int) -> str:
+    """Format seconds as HH:MM:SS."""
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def fmt_pc(clock_str: str) -> str:
+    """Format period clock MM:SS as NNmNNs."""
+    m = re.match(r"(\d+):(\d+)", clock_str)
+    if m:
+        return f"{m.group(1)}m{m.group(2)}s"
+    return clock_str
+
+
+def log(msg: str):
+    """Print a status message."""
+    print(f"  {msg}", flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: Video probing & frame extraction
+# ---------------------------------------------------------------------------
+
+def probe_video(video_path: str) -> dict:
+    """Get video metadata via ffprobe."""
+    cmd = [
+        "ffprobe", "-v", "quiet",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height,duration",
+        "-show_entries", "format=duration",
+        "-of", "json",
+        video_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    data = json.loads(result.stdout)
+
+    stream = data.get("streams", [{}])[0]
+    w = int(stream.get("width", 2560))
+    h = int(stream.get("height", 1440))
+    duration = float(
+        stream.get("duration", 0) or data.get("format", {}).get("duration", 0)
+    )
+    return {"width": w, "height": h, "duration": duration}
+
+
+def build_crop_filter(video_w: int, video_h: int, crop: dict, scale: tuple) -> str:
+    """Build an ffmpeg crop+scale filter string from proportional crop spec."""
+    cx = int(video_w * crop["x"])
+    cy = int(video_h * crop["y"])
+    cw = int(video_w * crop["w"])
+    ch = int(video_h * crop["h"])
+    sw, sh = scale
+    return f"crop={cw}:{ch}:{cx}:{cy},scale={sw}:{sh}"
+
+
+def extract_frames(video_path: str, ocr_dir: str, fps: float, video_info: dict):
+    """Extract right and left scoreboard crops at the given fps."""
+    w, h = video_info["width"], video_info["height"]
+
+    right_dir = os.path.join(ocr_dir, "right")
+    left_dir = os.path.join(ocr_dir, "left")
+    os.makedirs(right_dir, exist_ok=True)
+    os.makedirs(left_dir, exist_ok=True)
+
+    right_filter = build_crop_filter(w, h, RIGHT_CROP, RIGHT_SCALE)
+    left_filter = build_crop_filter(w, h, LEFT_CROP, LEFT_SCALE)
+
+    # Add contrast boost for right scoreboard
+    right_filter += ",eq=contrast=1.5:brightness=0.1"
+
+    log(f"Extracting right scoreboard frames (fps={fps})...")
+    subprocess.run(
+        [
+            "ffmpeg", "-i", video_path,
+            "-vf", f"fps={fps},{right_filter}",
+            "-q:v", "1",
+            os.path.join(right_dir, "frame_%05d.png"),
+        ],
+        capture_output=True,
+    )
+
+    log(f"Extracting left scoreboard frames (fps={fps})...")
+    subprocess.run(
+        [
+            "ffmpeg", "-i", video_path,
+            "-vf", f"fps={fps},{left_filter}",
+            "-q:v", "1",
+            os.path.join(left_dir, "frame_%05d.png"),
+        ],
+        capture_output=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: OCR
+# ---------------------------------------------------------------------------
+
+def ocr_frame_plain(frame_path: str) -> str:
+    """Run tesseract on a frame image, return raw text."""
+    result = subprocess.run(
+        ["tesseract", frame_path, "stdout", "--psm", "6"],
+        capture_output=True, timeout=15,
+    )
+    text = result.stdout.decode("utf-8", errors="replace")
+    return text.replace("\n", "~").strip()
+
+
+def ocr_frame_threshold(frame_path: str) -> str:
+    """Threshold the image to isolate text from the white scoreboard box, then OCR."""
+    img = Image.open(frame_path).convert("L")
+    thresh = img.point(lambda x: 255 if x > 180 else 0)
+    thresh = ImageOps.invert(thresh)
+    tmp_path = frame_path + ".thresh.png"
+    thresh.save(tmp_path)
+    result = subprocess.run(
+        ["tesseract", tmp_path, "stdout", "--psm", "6"],
+        capture_output=True, timeout=15,
+    )
+    os.unlink(tmp_path)
+    text = result.stdout.decode("utf-8", errors="replace")
+    return text.replace("\n", "~").strip()
+
+
+def ocr_frame_invert(frame_path: str) -> str:
+    """Invert dark-background frames for OCR (white text on dark bg)."""
+    img = Image.open(frame_path).convert("L")
+    inverted = ImageOps.invert(img)
+    tmp_path = frame_path + ".invert.png"
+    inverted.save(tmp_path)
+    result = subprocess.run(
+        ["tesseract", tmp_path, "stdout", "--psm", "6"],
+        capture_output=True, timeout=15,
+    )
+    os.unlink(tmp_path)
+    text = result.stdout.decode("utf-8", errors="replace")
+    return text.replace("\n", "~").strip()
+
+
+def run_ocr(ocr_dir: str, fps: float):
+    """Run OCR on all extracted frames and save results."""
+    right_dir = os.path.join(ocr_dir, "right")
+    left_dir = os.path.join(ocr_dir, "left")
+
+    frames = sorted(
+        f for f in os.listdir(right_dir) if f.startswith("frame_") and f.endswith(".png")
+    )
+
+    log(f"OCR pass on {len(frames)} right scoreboard frames (dual pass)...")
+    pj_lines = []
+    state_lines = []
+    for i, fname in enumerate(frames):
+        if (i + 1) % 100 == 0:
+            log(f"  ...frame {i + 1}/{len(frames)}")
+        fpath = os.path.join(right_dir, fname)
+        frame_num = int(fname.replace("frame_", "").replace(".png", ""))
+
+        pj_text = ocr_frame_plain(fpath)
+        state_text = ocr_frame_threshold(fpath)
+
+        pj_lines.append(f"{frame_num:05d}|{pj_text}")
+        state_lines.append(f"{frame_num:05d}|{state_text}")
+
+    with open(os.path.join(ocr_dir, "right_pj_ocr.txt"), "w") as f:
+        f.write("\n".join(pj_lines) + "\n")
+    with open(os.path.join(ocr_dir, "right_state_ocr.txt"), "w") as f:
+        f.write("\n".join(state_lines) + "\n")
+
+    # Left scoreboard OCR
+    left_frames = sorted(
+        f for f in os.listdir(left_dir) if f.startswith("frame_") and f.endswith(".png")
+    )
+    log(f"OCR pass on {len(left_frames)} left scoreboard frames...")
+    left_lines = []
+    for i, fname in enumerate(left_frames):
+        if (i + 1) % 100 == 0:
+            log(f"  ...frame {i + 1}/{len(left_frames)}")
+        fpath = os.path.join(left_dir, fname)
+        frame_num = int(fname.replace("frame_", "").replace(".png", ""))
+        text = ocr_frame_invert(fpath)
+        left_lines.append(f"{frame_num:05d}|{text}")
+
+    with open(os.path.join(ocr_dir, "left_ocr.txt"), "w") as f:
+        f.write("\n".join(left_lines) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Timeline construction
+# ---------------------------------------------------------------------------
+
+def fix_period(p: int) -> int:
+    """Correct common OCR mis-reads of period numbers."""
+    return PERIOD_FIXES.get(p, p)
+
+
+def detect_state(text: str) -> Optional[str]:
+    """Detect scoreboard state from OCR text."""
+    upper = text.upper()
+    for state_name, keywords in STATE_KEYWORDS:
+        for kw in keywords:
+            if kw in upper:
+                return state_name
+    return None
+
+
+def extract_pj(text: str):
+    """Extract (period, jam) from OCR text, or (None, None)."""
+    m = re.search(r"P(\d+)\s+J(\d+)", text)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return None, None
+
+
+def build_timeline(ocr_dir: str, frame_interval: float) -> dict:
+    """
+    Build the chapter timeline from OCR data.
+
+    Returns a dict with:
+      - 'jams': list of jam dicts with seconds, period, jam number
+      - 'chapters': list of chapter dicts (jams + timeouts) with timestamps
+    """
+    # --- Load OCR data ---
+    pj_entries = []
+    with open(os.path.join(ocr_dir, "right_pj_ocr.txt")) as f:
+        for line in f:
+            parts = line.strip().split("|", 1)
+            if len(parts) < 2:
+                continue
+            frame = int(parts[0])
+            p, j = extract_pj(parts[1])
+            if p is not None:
+                p = fix_period(p)
+                if p in (1, 2):
+                    pj_entries.append((frame, p, j, frame * frame_interval))
+
+    state_entries = []
+    with open(os.path.join(ocr_dir, "right_state_ocr.txt")) as f:
+        for line in f:
+            parts = line.strip().split("|", 1)
+            if len(parts) < 2:
+                continue
+            frame = int(parts[0])
+            state = detect_state(parts[1])
+            if state:
+                state_entries.append(
+                    {"frame": frame, "state": state, "seconds": frame * frame_interval}
+                )
+
+    # --- Find jam transitions (forward-only) ---
+    transitions = []
+    cur_p, cur_j = 0, 0
+    for frame, p, j, sec in pj_entries:
+        if p > cur_p:
+            cur_p, cur_j = p, 0
+        if p == cur_p and j == cur_j + 1 and j < cur_j + 6:
+            cur_j = j
+            transitions.append({"frame": frame, "p": p, "j": j, "seconds": int(sec)})
+
+    # --- Build chapter list ---
+    chapters = []
+
+    # For each jam, find the best LINEUP/POST TIMEOUT preceding it
+    for i, jam in enumerate(transitions):
+        prev_sec = transitions[i - 1]["seconds"] if i > 0 else 0
+        jam_sec = jam["seconds"]
+
+        best = None
+        for st in state_entries:
+            if st["state"] == "HIGHLIGHT":
+                continue
+            if prev_sec < st["seconds"] < jam_sec:
+                if st["state"] in ("LINEUP", "POST TIMEOUT"):
+                    if best is None or st["seconds"] < best["seconds"]:
+                        best = st
+
+        ch_sec = int(best["seconds"]) if best else jam_sec
+        post_to = best["state"] == "POST TIMEOUT" if best else False
+
+        chapters.append({
+            "seconds": ch_sec,
+            "p": jam["p"],
+            "j": jam["j"],
+            "type": "JAM",
+            "post_timeout": post_to,
+            "jam_start_seconds": jam_sec,
+        })
+
+    # --- Find timeout blocks ---
+    timeout_blocks = []
+    in_timeout = False
+    block_start = None
+    block_type = None
+
+    for st in state_entries:
+        if st["state"] in ("OFFICIAL TIMEOUT", "TEAM TIMEOUT", "TIMEOUT"):
+            if not in_timeout:
+                in_timeout = True
+                block_start = st["seconds"]
+                block_type = st["state"]
+            if st["state"] != "TIMEOUT":
+                block_type = st["state"]
+        else:
+            if in_timeout:
+                timeout_blocks.append({"seconds": int(block_start), "type": block_type})
+                in_timeout = False
+
+    if in_timeout:
+        timeout_blocks.append({"seconds": int(block_start), "type": block_type})
+
+    # Dedup timeout blocks (merge within 30s)
+    deduped = []
+    for tb in timeout_blocks:
+        if not deduped or tb["seconds"] - deduped[-1]["seconds"] > 30:
+            deduped.append(tb)
+
+    # Add timeouts to chapters
+    for tb in deduped:
+        prev_jam = None
+        for jam in transitions:
+            if jam["seconds"] <= tb["seconds"]:
+                prev_jam = jam
+        p = prev_jam["p"] if prev_jam else 1
+
+        detail = tb["type"]
+        if detail == "OFFICIAL TIMEOUT":
+            detail = "Official Timeout"
+        elif detail == "TEAM TIMEOUT":
+            detail = "Team Timeout"
+        else:
+            detail = "Timeout"
+
+        chapters.append({
+            "seconds": tb["seconds"],
+            "p": p,
+            "j": 0,
+            "type": "TIMEOUT",
+            "detail": detail,
+        })
+
+    chapters.sort(key=lambda x: x["seconds"])
+
+    return {"jams": transitions, "chapters": chapters}
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Period clock reading
+# ---------------------------------------------------------------------------
+
+def read_period_clocks(ocr_dir: str, chapters: list, frame_interval: float):
+    """Read period clock values for each chapter entry."""
+    # Load right PJ OCR for clock extraction
+    pj_ocr = {}
+    with open(os.path.join(ocr_dir, "right_pj_ocr.txt")) as f:
+        for line in f:
+            parts = line.strip().split("|", 1)
+            if len(parts) < 2:
+                continue
+            frame = int(parts[0])
+            pj_ocr[frame] = parts[1]
+
+    for ch in chapters:
+        frame = int(ch["seconds"] / frame_interval)
+        period_clock = None
+
+        for offset in range(0, 8):
+            f = frame + offset
+            if f in pj_ocr:
+                matches = re.findall(r"(\d{1,2}:\d{2})", pj_ocr[f])
+                if matches:
+                    period_clock = matches[0]
+                    break
+
+        ch["period_clock"] = period_clock
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: Name reading
+# ---------------------------------------------------------------------------
+
+def read_names(ocr_dir: str, timeline: dict, frame_interval: float):
+    """Read jammer and pivot names for each jam chapter."""
+    left_ocr = {}
+    left_path = os.path.join(ocr_dir, "left_ocr.txt")
+    if not os.path.exists(left_path):
+        return
+
+    with open(left_path) as f:
+        for line in f:
+            parts = line.strip().split("|", 1)
+            if len(parts) < 2:
+                continue
+            frame = int(parts[0])
+            left_ocr[frame] = parts[1]
+
+    jams = timeline["jams"]
+    chapters = timeline["chapters"]
+
+    for ch in chapters:
+        if ch["type"] != "JAM":
+            continue
+
+        jam_start = int(ch["jam_start_seconds"] / frame_interval)
+
+        # Find end of this jam (start of next jam or +60 frames)
+        jam_end = jam_start + 60
+        for j in jams:
+            if j["seconds"] > ch["jam_start_seconds"]:
+                jam_end = int(j["seconds"] / frame_interval)
+                break
+
+        # Seek through frames to find the best name reading
+        best_names = {"team1": [], "team2": []}
+        best_count = 0
+
+        for f in range(jam_start, min(jam_end, jam_start + 40)):
+            if f not in left_ocr:
+                continue
+
+            text = left_ocr[f]
+            if "HIGHLIGHT" in text.upper():
+                continue
+
+            lines = text.split("~")
+            names = {"team1": [], "team2": []}
+
+            for line_text in lines:
+                clean = line_text.strip()
+                if len(clean) < 3:
+                    continue
+                # Filter out pure numbers/noise
+                if re.match(r"^[\d\s.:,|*]+$", clean):
+                    continue
+                # Check for star markers
+                has_star = "★" in clean or "*" in clean or "¥" in clean
+                # Remove star characters and clean up
+                clean = re.sub(r"[★*¥]", "", clean).strip()
+                # Split on pipes or large spaces for multi-column
+                parts = re.split(r"\s*\|\s*|\s{3,}", clean)
+                parts = [p.strip() for p in parts if len(p.strip()) > 1]
+
+                if parts:
+                    if not names["team1"]:
+                        names["team1"] = parts
+                    elif not names["team2"]:
+                        names["team2"] = parts
+
+            count = len(names["team1"]) + len(names["team2"])
+            if count > best_count:
+                best_count = count
+                best_names = names
+
+        ch["team1_names"] = best_names["team1"]
+        ch["team2_names"] = best_names["team2"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 6: Output formatting
+# ---------------------------------------------------------------------------
+
+def detect_team_names(ocr_dir: str) -> tuple:
+    """Try to detect team names from the left scoreboard OCR."""
+    left_path = os.path.join(ocr_dir, "left_ocr.txt")
+    if not os.path.exists(left_path):
+        return "Team 1", "Team 2"
+
+    # The left frames show team names before the dark jammer area
+    # For now, return placeholders — the user can override
+    return "Team 1", "Team 2"
+
+
+def format_name_line(team_name: str, names: list) -> str:
+    """Format a team lineup line: 'Team: Jammer* | Pivot'."""
+    if not names:
+        return ""
+    parts = []
+    for i, name in enumerate(names):
+        if i == 0:
+            parts.append(f"{name}*")
+        else:
+            parts.append(name)
+    return f"{team_name}: {' | '.join(parts)}"
+
+
+def write_chapters(
+    chapters: list,
+    output_path: str,
+    team1_name: str = "Team 1",
+    team2_name: str = "Team 2",
+    include_lineups: bool = True,
+    include_period_clock: bool = True,
+):
+    """Write the final chapters file."""
+    lines = []
+    cur_period = 0
+
+    for ch in chapters:
+        if ch["p"] != cur_period:
+            cur_period = ch["p"]
+            if lines:
+                lines.append("")
+            lines.append(f"Period {cur_period}:")
+
+        ts = fmt_ts(ch["seconds"])
+
+        if ch["type"] == "TIMEOUT":
+            detail = ch.get("detail", "Timeout")
+            if include_period_clock and ch.get("period_clock"):
+                pc = fmt_pc(ch["period_clock"])
+                lines.append(f"{ts} {detail} [{pc}]")
+            else:
+                lines.append(f"{ts} {detail}")
+        else:
+            # Jam entry
+            pj = f"P{ch['p']}J{ch['j']:02d}"
+            suffix = " (Post Timeout)" if ch.get("post_timeout") else ""
+
+            if include_period_clock and ch.get("period_clock"):
+                pc = fmt_pc(ch["period_clock"])
+                lines.append(f"{ts} {pj}{suffix} [{pc}]")
+            else:
+                lines.append(f"{ts} {pj}{suffix}")
+
+            if include_lineups:
+                t1 = ch.get("team1_names", [])
+                t2 = ch.get("team2_names", [])
+                line1 = format_name_line(team1_name, t1)
+                line2 = format_name_line(team2_name, t2)
+                if line1:
+                    lines.append(line1)
+                if line2:
+                    lines.append(line2)
+
+        lines.append("")
+
+    output = "\n".join(lines).rstrip() + "\n"
+
+    with open(output_path, "w") as f:
+        f.write(output)
+
+    return output
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate YouTube chapter markers from roller derby bout footage.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Example:\n  python bout_indexer.py game.mkv --output chapters.txt",
+    )
+    parser.add_argument("video", help="Path to the bout video file")
+    parser.add_argument(
+        "--fps", type=float, default=1 / 3,
+        help="Frame sampling rate in fps (default: 0.333 = 1 frame per 3 seconds)",
+    )
+    parser.add_argument(
+        "--no-lineups", action="store_true",
+        help="Disable jam lineup output",
+    )
+    parser.add_argument(
+        "--no-period-clock", action="store_true",
+        help="Disable period clock output",
+    )
+    parser.add_argument(
+        "--output", type=str, default=None,
+        help="Output chapters file (default: <video_basename> Chapters.txt)",
+    )
+    parser.add_argument(
+        "--ocr-dir", type=str, default=None,
+        help="OCR data directory (default: <video_basename> OCR/)",
+    )
+    parser.add_argument(
+        "--reprocess", action="store_true",
+        help="Skip frame extraction, reuse existing OCR directory",
+    )
+    parser.add_argument(
+        "--team1", type=str, default=None,
+        help="Name of team 1 (top row on scoreboard)",
+    )
+    parser.add_argument(
+        "--team2", type=str, default=None,
+        help="Name of team 2 (bottom row on scoreboard)",
+    )
+
+    args = parser.parse_args()
+
+    video_path = os.path.realpath(os.path.abspath(args.video))
+    if not os.path.exists(video_path):
+        print(f"Error: Video file not found: {video_path}", file=sys.stderr)
+        sys.exit(1)
+
+    video_dir = os.path.dirname(video_path)
+    video_stem = Path(video_path).stem
+
+    output_path = os.path.realpath(
+        args.output or os.path.join(video_dir, f"{video_stem} Chapters.txt")
+    )
+    ocr_dir = os.path.realpath(
+        args.ocr_dir or os.path.join(video_dir, f"{video_stem} OCR")
+    )
+
+    frame_interval = 1.0 / args.fps  # seconds per frame
+
+    print(f"nws-bout-indexer")
+    print(f"  Video:  {video_path}")
+    print(f"  Output: {output_path}")
+    print(f"  OCR:    {ocr_dir}")
+    print(f"  FPS:    {args.fps} ({frame_interval:.1f}s per frame)")
+    print()
+
+    # Phase 1: Frame extraction
+    if args.reprocess and os.path.exists(ocr_dir):
+        log("Reprocessing: skipping frame extraction, using existing OCR data.")
+    else:
+        log("Probing video...")
+        video_info = probe_video(video_path)
+        log(f"Resolution: {video_info['width']}x{video_info['height']}, "
+            f"Duration: {fmt_ts(int(video_info['duration']))}")
+
+        extract_frames(video_path, ocr_dir, args.fps, video_info)
+
+    # Phase 2: OCR
+    pj_ocr_path = os.path.join(ocr_dir, "right_pj_ocr.txt")
+    if args.reprocess and os.path.exists(pj_ocr_path):
+        log("Reprocessing: skipping OCR, using existing OCR results.")
+    else:
+        run_ocr(ocr_dir, args.fps)
+
+    # Phase 3: Timeline construction
+    log("Building timeline...")
+    timeline = build_timeline(ocr_dir, frame_interval)
+    jam_count = len(timeline["jams"])
+    timeout_count = sum(1 for c in timeline["chapters"] if c["type"] == "TIMEOUT")
+    log(f"Found {jam_count} jams, {timeout_count} timeouts")
+
+    # Phase 4: Period clocks
+    if not args.no_period_clock:
+        log("Reading period clocks...")
+        read_period_clocks(ocr_dir, timeline["chapters"], frame_interval)
+
+    # Phase 5: Names
+    if not args.no_lineups:
+        log("Reading player names...")
+        read_names(ocr_dir, timeline, frame_interval)
+
+    # Phase 6: Output
+    team1 = args.team1 or "Team 1"
+    team2 = args.team2 or "Team 2"
+
+    log(f"Writing chapters to {output_path}...")
+    write_chapters(
+        timeline["chapters"],
+        output_path,
+        team1_name=team1,
+        team2_name=team2,
+        include_lineups=not args.no_lineups,
+        include_period_clock=not args.no_period_clock,
+    )
+
+    # Count periods
+    periods = set(c["p"] for c in timeline["chapters"])
+    for p in sorted(periods):
+        p_jams = sum(1 for c in timeline["chapters"] if c["p"] == p and c["type"] == "JAM")
+        p_tos = sum(1 for c in timeline["chapters"] if c["p"] == p and c["type"] == "TIMEOUT")
+        log(f"Period {p}: {p_jams} jams, {p_tos} timeouts")
+
+    print()
+    print(f"Done! Chapters written to: {output_path}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,55 @@
+Period 1:
+00:05:33 Jam 01 - Mayhem West (Honky Tonk Heartbreakers); Tropical Mecanica (Hell Marys)
+00:06:33 Jam 02 - Miso Thorny (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+00:07:27 Jam 03 - Scrapegoat (Honky Tonk Heartbreakers); Speed O' (Hell Marys)
+00:08:45 Jam 04 - Mayhem West (Honky Tonk Heartbreakers); Tropical Mecanica (Hell Marys)
+00:10:00 Jam 05 - Miso Thorny (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+00:11:33 Jam 06 - Miso Thorny (Honky Tonk Heartbreakers); Speed O' (Hell Marys)
+00:13:06 Jam 07 - Mayhem West (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+00:14:42 Official Timeout
+00:15:48 Jam 08 - Miso Thorny (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+00:16:39 Jam 09 (Post Timeout) - Scrapegoat (Honky Tonk Heartbreakers); Tropical Mecanica (Hell Marys)
+00:18:00 Jam 10 - Delirium Trigger (Honky Tonk Heartbreakers); Speed O' (Hell Marys)
+00:18:39 Jam 11 - Miso Thorny (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+00:20:39 Jam 12 - Mayhem West (Honky Tonk Heartbreakers); Tropical Mecanica (Hell Marys)
+00:21:45 Team Timeout
+00:22:21 Jam 13 (Post Timeout) - Scrapegoat (Honky Tonk Heartbreakers); Speed O' (Hell Marys)
+00:23:51 Official Timeout
+00:25:57 Jam 14 (Post Timeout) - Mayhem West (Honky Tonk Heartbreakers); Tropical Mecanica (Hell Marys)
+00:26:45 Official Timeout
+00:32:21 Jam 15 (Post Timeout) - Miso Thorny (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+00:33:18 Jam 16 - Scrapegoat (Honky Tonk Heartbreakers); Speed O' (Hell Marys)
+00:34:33 Jam 17 - Mayhem West (Honky Tonk Heartbreakers); Speed O' (Hell Marys)
+00:38:51 Jam 18 - (Honky Tonk Heartbreakers); (Hell Marys)
+00:39:03 Jam 19 - Scrapegoat (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+00:39:51 Jam 20 - Mayhem West (Honky Tonk Heartbreakers); Speed O' (Hell Marys)
+00:41:21 Jam 21 - Miso Thorny (Honky Tonk Heartbreakers); Tropical Mecanica (Hell Marys)
+00:42:18 Jam 22 - Miso Thorny (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+00:44:42 Jam 23 (Post Timeout) - Scrapegoat (Honky Tonk Heartbreakers); Speed O' (Hell Marys)
+00:45:24 Official Timeout
+00:46:36 Jam 24 - Mayhem West (Honky Tonk Heartbreakers); Tropical Mecanica (Hell Marys)
+
+Period 2:
+00:54:27 Jam 01 - Mayhem West (Honky Tonk Heartbreakers); Tropical Mecanica (Hell Marys)
+00:55:48 Jam 02 - Miso Thorny (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+00:58:24 Jam 03 - Scrapegoat (Honky Tonk Heartbreakers); Speed O' (Hell Marys)
+00:59:42 Jam 04 - Mayhem West (Honky Tonk Heartbreakers); Tropical Mecanica (Hell Marys)
+01:02:21 Jam 05 - Miso Thorny (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+01:04:42 Jam 06 - Scrapegoat (Honky Tonk Heartbreakers); Speed O' (Hell Marys)
+01:06:12 Jam 07 - Mayhem West (Honky Tonk Heartbreakers); Shredinger's Cat (Hell Marys)
+01:07:06 Jam 08 - Miso Thorny (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+01:09:51 Jam 09 - (Honky Tonk Heartbreakers); (Hell Marys)
+01:10:57 Team Timeout
+01:11:51 Jam 10 (Post Timeout) - Scrapegoat (Honky Tonk Heartbreakers); Tropical Mecanica (Hell Marys)
+01:14:24 Jam 11 (Post Timeout) - Mayhem West (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+01:15:42 Jam 12 - Scrapegoat (Honky Tonk Heartbreakers); Shredinger's Cat (Hell Marys)
+01:18:45 Jam 13 - Delirium Trigger (Honky Tonk Heartbreakers); Shredinger's Cat (Hell Marys)
+01:20:06 Jam 14 - Delirium Trigger (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+01:21:33 Jam 15 - Mayhem West (Honky Tonk Heartbreakers); Tropical Mecanica (Hell Marys)
+01:22:24 Jam 16 - Scrapegoat (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+01:23:36 Official Timeout
+01:25:09 Jam 17 - Mayhem West (Honky Tonk Heartbreakers); Tropical Mecanica (Hell Marys)
+01:25:48 Team Timeout
+01:27:24 Jam 18 (Post Timeout) - Scrapegoat (Honky Tonk Heartbreakers); Mila Gritos (Hell Marys)
+01:29:15 Jam 19 - Miso Thorny (Honky Tonk Heartbreakers); Tropical Mecanica (Hell Marys)
+01:30:39 Jam 20 - Mayhem West (Honky Tonk Heartbreakers); Shredinger's Cat (Hell Marys)
