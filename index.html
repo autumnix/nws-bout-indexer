@@ -191,12 +191,8 @@
 
   <!-- Config -->
   <div class="card">
-    <label for="video">Video file</label>
-    <div style="display:flex; gap:0.5rem;">
-      <input type="text" id="video" placeholder="/path/to/bout.mkv" style="flex:1; margin-bottom:0;">
-      <button class="btn" style="margin-top:0; padding:0.6rem 1rem; font-size:0.85rem;" onclick="browseFile()">Browse</button>
-    </div>
-    <div style="height:0.75rem;"></div>
+    <label for="video">Video file path</label>
+    <input type="text" id="video" placeholder="/path/to/bout.mkv">
 
     <div class="row">
       <div>
@@ -272,17 +268,6 @@ const PHASE_LABELS = {
 };
 
 let eventSource = null;
-
-function browseFile() {
-  fetch('/api/browse')
-    .then(r => r.json())
-    .then(data => {
-      if (data.path) {
-        document.getElementById('video').value = data.path;
-      }
-    })
-    .catch(err => console.error('Browse failed:', err));
-}
 
 function startJob() {
   const btn = document.getElementById('run-btn');
