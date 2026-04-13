@@ -734,6 +734,7 @@ def main():
     # Phase 1: Frame extraction
     if args.reprocess and os.path.exists(ocr_dir):
         log("Reprocessing: skipping frame extraction, using existing OCR data.")
+        video_info = probe_video(video_path)
     else:
         log("Probing video...")
         video_info = probe_video(video_path)
@@ -741,6 +742,12 @@ def main():
             f"Duration: {fmt_ts(int(video_info['duration']))}")
 
         extract_frames(video_path, ocr_dir, args.fps, video_info)
+
+    low_res = video_info["height"] < 720
+    if low_res and not args.no_lineups:
+        log("WARNING: Video resolution below 720p — lineup parsing is unsupported "
+            "and will be skipped. Use --no-lineups to suppress this warning.")
+        args.no_lineups = True
 
     # Phase 2: OCR
     pj_ocr_path = os.path.join(ocr_dir, "right_pj_ocr.txt")
