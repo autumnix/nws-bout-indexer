@@ -177,12 +177,17 @@ def ocr_frame_threshold(frame_path: str) -> str:
     return text.replace("\n", "~").strip()
 
 
-def ocr_frame_invert(frame_path: str) -> str:
-    """Invert dark-background frames for OCR (white text on dark bg)."""
+def ocr_frame_names(frame_path: str) -> str:
+    """OCR left scoreboard: crop past score area, threshold to isolate white text on dark bg."""
     img = Image.open(frame_path).convert("L")
-    inverted = ImageOps.invert(img)
-    tmp_path = frame_path + ".invert.png"
-    inverted.save(tmp_path)
+    w, h = img.size
+    # Crop past the score numbers area (~15% of width) to avoid noise
+    crop_x = int(w * 0.15)
+    cropped = img.crop((crop_x, 0, w, h))
+    # Threshold: keep only bright pixels (white text on dark bg)
+    thresh = cropped.point(lambda x: 255 if x > 160 else 0)
+    tmp_path = frame_path + ".names.png"
+    thresh.save(tmp_path)
     result = subprocess.run(
         ["tesseract", tmp_path, "stdout", "--psm", "6"],
         capture_output=True, timeout=15,
@@ -232,7 +237,7 @@ def run_ocr(ocr_dir: str, fps: float):
             log(f"  ...frame {i + 1}/{len(left_frames)}")
         fpath = os.path.join(left_dir, fname)
         frame_num = int(fname.replace("frame_", "").replace(".png", ""))
-        text = ocr_frame_invert(fpath)
+        text = ocr_frame_names(fpath)
         left_lines.append(f"{frame_num:05d}|{text}")
 
     with open(os.path.join(ocr_dir, "left_ocr.txt"), "w") as f:
@@ -258,9 +263,24 @@ def detect_state(text: str) -> Optional[str]:
     return None
 
 
+def normalize_pj_text(text: str) -> str:
+    """Normalize common OCR substitutions for P/J detection."""
+    # Common OCR confusions: l→1, I→1, O→0, S→5, T→7
+    # Only apply in the context of P/J patterns
+    normalized = text
+    # Fix "Pl" -> "P1", "PI" -> "P1"
+    normalized = re.sub(r"P[lI]", "P1", normalized)
+    # Fix "Jl" -> "J1", "JI" -> "J1", "JT" -> "J1"
+    normalized = re.sub(r"J[lIT](?=\s|$|[^a-zA-Z])", "J1", normalized)
+    # Fix "Jn" patterns (n misread for a digit)
+    normalized = re.sub(r"Jn(?=\s|$)", "J11", normalized)
+    return normalized
+
+
 def extract_pj(text: str):
     """Extract (period, jam) from OCR text, or (None, None)."""
-    m = re.search(r"P(\d+)\s+J(\d+)", text)
+    normalized = normalize_pj_text(text)
+    m = re.search(r"P(\d+)\s+J(\d+)", normalized)
     if m:
         return int(m.group(1)), int(m.group(2))
     return None, None
@@ -403,7 +423,7 @@ def build_timeline(ocr_dir: str, frame_interval: float) -> dict:
 
 def read_period_clocks(ocr_dir: str, chapters: list, frame_interval: float):
     """Read period clock values for each chapter entry."""
-    # Load right PJ OCR for clock extraction
+    # Load both OCR passes for clock extraction
     pj_ocr = {}
     with open(os.path.join(ocr_dir, "right_pj_ocr.txt")) as f:
         for line in f:
@@ -413,16 +433,42 @@ def read_period_clocks(ocr_dir: str, chapters: list, frame_interval: float):
             frame = int(parts[0])
             pj_ocr[frame] = parts[1]
 
+    state_ocr = {}
+    state_path = os.path.join(ocr_dir, "right_state_ocr.txt")
+    if os.path.exists(state_path):
+        with open(state_path) as f:
+            for line in f:
+                parts = line.strip().split("|", 1)
+                if len(parts) < 2:
+                    continue
+                frame = int(parts[0])
+                state_ocr[frame] = parts[1]
+
+    def find_valid_clock(text: str) -> Optional[str]:
+        """Extract a valid period clock (0:00 - 30:00) from OCR text."""
+        matches = re.findall(r"(\d{1,2}):(\d{2})", text)
+        for m_str, s_str in matches:
+            m_val, s_val = int(m_str), int(s_str)
+            if m_val <= 30 and s_val <= 59:
+                return f"{m_val}:{s_str}"
+        return None
+
     for ch in chapters:
         frame = int(ch["seconds"] / frame_interval)
         period_clock = None
 
-        for offset in range(0, 8):
+        # Try both OCR passes, multiple frame offsets
+        for offset in range(0, 10):
             f = frame + offset
+            # Try plain OCR first (often has cleaner numbers)
             if f in pj_ocr:
-                matches = re.findall(r"(\d{1,2}:\d{2})", pj_ocr[f])
-                if matches:
-                    period_clock = matches[0]
+                period_clock = find_valid_clock(pj_ocr[f])
+                if period_clock:
+                    break
+            # Fall back to threshold OCR
+            if f in state_ocr:
+                period_clock = find_valid_clock(state_ocr[f])
+                if period_clock:
                     break
 
         ch["period_clock"] = period_clock
@@ -431,6 +477,37 @@ def read_period_clocks(ocr_dir: str, chapters: list, frame_interval: float):
 # ---------------------------------------------------------------------------
 # Phase 5: Name reading
 # ---------------------------------------------------------------------------
+
+def parse_name_line(text: str) -> list:
+    """Parse a single OCR line into a list of player names."""
+    # Remove star/noise characters
+    clean = re.sub(r"[★*¥%#©®]", "", text).strip()
+    # Remove leading score-like patterns (e.g., "eys 50 0")
+    clean = re.sub(r"^[a-z]{0,4}\s*\d+\s*\d*\s*", "", clean).strip()
+    # Remove trailing noise
+    clean = re.sub(r"\s*[|}\]\)]\s*$", "", clean).strip()
+
+    if len(clean) < 2:
+        return []
+
+    # Split on clear separators between name columns
+    # Names are separated by large whitespace gaps or explicit separators
+    parts = re.split(r"\s{3,}|\s*\|\s*", clean)
+    names = []
+    for p in parts:
+        p = p.strip()
+        # Filter out noise: too short, pure numbers, or obvious garbage
+        if len(p) < 2:
+            continue
+        if re.match(r"^[\d\s.:,;!?|]+$", p):
+            continue
+        # Filter out common OCR noise patterns
+        if re.match(r"^[=\-_~<>{}()\[\]]+$", p):
+            continue
+        names.append(p)
+
+    return names
+
 
 def read_names(ocr_dir: str, timeline: dict, frame_interval: float):
     """Read jammer and pivot names for each jam chapter."""
@@ -475,29 +552,18 @@ def read_names(ocr_dir: str, timeline: dict, frame_interval: float):
             if "HIGHLIGHT" in text.upper():
                 continue
 
-            lines = text.split("~")
+            # Split into lines (~ separator from OCR)
+            lines = [l.strip() for l in text.split("~") if l.strip()]
+
+            # Parse each line for names — first valid line is team1, second is team2
             names = {"team1": [], "team2": []}
-
             for line_text in lines:
-                clean = line_text.strip()
-                if len(clean) < 3:
-                    continue
-                # Filter out pure numbers/noise
-                if re.match(r"^[\d\s.:,|*]+$", clean):
-                    continue
-                # Check for star markers
-                has_star = "★" in clean or "*" in clean or "¥" in clean
-                # Remove star characters and clean up
-                clean = re.sub(r"[★*¥]", "", clean).strip()
-                # Split on pipes or large spaces for multi-column
-                parts = re.split(r"\s*\|\s*|\s{3,}", clean)
-                parts = [p.strip() for p in parts if len(p.strip()) > 1]
-
-                if parts:
+                parsed = parse_name_line(line_text)
+                if parsed:
                     if not names["team1"]:
-                        names["team1"] = parts
+                        names["team1"] = parsed
                     elif not names["team2"]:
-                        names["team2"] = parts
+                        names["team2"] = parsed
 
             count = len(names["team1"]) + len(names["team2"])
             if count > best_count:
