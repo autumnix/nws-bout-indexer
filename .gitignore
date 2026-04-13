@@ -10,4 +10,5 @@ venv/
 .env
 .venv/
 *.ocr/
-test-resources/videos/
+# Ignore full bout videos but keep test clips
+test-resources/videos/Game ?.mkv
