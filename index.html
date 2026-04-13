@@ -68,6 +68,7 @@
     display: flex;
     gap: 1.5rem;
     margin: 0.5rem 0;
+    flex-wrap: wrap;
   }
   .checks label {
     display: flex;
@@ -100,88 +101,7 @@
   .btn:hover { opacity: 0.85; }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  /* Progress */
-  #progress-section { display: none; }
-  #progress-section.active { display: block; }
-
-  .phase-label {
-    font-size: 0.85rem;
-    color: var(--muted);
-    margin-bottom: 0.4rem;
-  }
-  .phase-label span { color: var(--text); font-weight: 600; }
-
-  .progress-bar {
-    width: 100%;
-    height: 22px;
-    background: var(--bar-bg);
-    border-radius: 4px;
-    overflow: hidden;
-    margin-bottom: 0.75rem;
-    position: relative;
-  }
-  .progress-fill {
-    height: 100%;
-    background: var(--accent);
-    transition: width 0.3s ease;
-    border-radius: 4px;
-  }
-  .progress-fill.done { background: var(--success); }
-  .progress-text {
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #fff;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-  }
-
-  .log-box {
-    background: var(--bg);
-    border: 1px solid #333;
-    border-radius: 4px;
-    padding: 0.5rem 0.75rem;
-    font-family: 'SF Mono', 'Fira Code', monospace;
-    font-size: 0.78rem;
-    color: var(--muted);
-    max-height: 120px;
-    overflow-y: auto;
-    margin-top: 0.5rem;
-    line-height: 1.5;
-  }
-
-  /* Output */
-  #output-section { display: none; }
-  #output-section.active { display: block; }
-
-  .output-box {
-    background: var(--bg);
-    border: 1px solid #333;
-    border-radius: 4px;
-    padding: 0.75rem;
-    font-family: 'SF Mono', 'Fira Code', monospace;
-    font-size: 0.8rem;
-    color: var(--text);
-    max-height: 400px;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    line-height: 1.6;
-  }
-  .copy-btn {
-    float: right;
-    padding: 0.3rem 0.8rem;
-    background: var(--card);
-    color: var(--muted);
-    border: 1px solid #555;
-    border-radius: 3px;
-    font-size: 0.75rem;
-    cursor: pointer;
-  }
-  .copy-btn:hover { color: var(--text); border-color: var(--accent); }
-
+  /* Help tooltips */
   .help-wrap {
     position: relative;
     display: inline-block;
@@ -232,6 +152,112 @@
     border-top-color: #555;
   }
   .help-wrap:hover .help-tip { display: block; }
+
+  /* Progress */
+  #progress-section { display: none; }
+  #progress-section.active { display: block; }
+
+  .phase-label {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 0.4rem;
+  }
+  .phase-label span { color: var(--text); font-weight: 600; }
+
+  .progress-bar {
+    width: 100%;
+    height: 22px;
+    background: var(--bar-bg);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+    position: relative;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.3s ease;
+    border-radius: 4px;
+  }
+  .progress-fill.done { background: var(--success); }
+  .progress-text {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+
+  .phase-steps {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .phase-step {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    background: var(--bar-bg);
+    color: var(--muted);
+    transition: all 0.3s;
+  }
+  .phase-step.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  .phase-step.completed {
+    background: var(--success);
+    color: #fff;
+    opacity: 0.7;
+  }
+
+  .log-box {
+    background: var(--bg);
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+    max-height: 120px;
+    overflow-y: auto;
+    margin-top: 0.5rem;
+    line-height: 1.5;
+  }
+
+  /* Output */
+  #output-section { display: none; }
+  #output-section.active { display: block; }
+
+  .output-box {
+    background: var(--bg);
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 0.75rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.8rem;
+    color: var(--text);
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    line-height: 1.6;
+  }
+  .copy-btn {
+    float: right;
+    padding: 0.3rem 0.8rem;
+    background: var(--card);
+    color: var(--muted);
+    border: 1px solid #555;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+  .copy-btn:hover { color: var(--text); border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -242,23 +268,31 @@
 
   <!-- Config -->
   <div class="card">
-    <label for="video">Video file path</label>
-    <input type="text" id="video" placeholder="/path/to/bout.mkv">
+    <label for="video">Video file path
+      <span class="help-wrap"><span class="help-icon">?</span><span class="help-tip">Full path to the bout video file. Tip: drag the file from Finder directly into this field to paste its path.</span></span>
+    </label>
+    <input type="text" id="video" placeholder="Drag file from Finder into this field, or paste path">
 
     <div class="row">
       <div>
-        <label for="team1">Team 1 override <span style="text-transform:none; color:#666;">(top row — auto-detected if blank)</span></label>
+        <label for="team1">Team 1
+          <span class="help-wrap"><span class="help-icon">?</span><span class="help-tip">Display name for the top team on the scoreboard. Used in the chapter output (e.g. "Hotrod Honeys: Impact Play*"). Leave blank to auto-detect from the scoreboard.</span></span>
+        </label>
         <input type="text" id="team1" placeholder="auto-detect from scoreboard">
       </div>
       <div>
-        <label for="team2">Team 2 override <span style="text-transform:none; color:#666;">(bottom row — auto-detected if blank)</span></label>
+        <label for="team2">Team 2
+          <span class="help-wrap"><span class="help-icon">?</span><span class="help-tip">Display name for the bottom team on the scoreboard. Used in the chapter output (e.g. "Hustlers: Spread Eagle*"). Leave blank to auto-detect from the scoreboard.</span></span>
+        </label>
         <input type="text" id="team2" placeholder="auto-detect from scoreboard">
       </div>
     </div>
 
     <div class="row">
       <div>
-        <label for="fps">Frame sampling</label>
+        <label for="fps">Frame sampling
+          <span class="help-wrap"><span class="help-icon">?</span><span class="help-tip">How often to sample frames from the video. Lower rates are faster but less precise. 1 frame / 3 sec is usually sufficient for chapter timestamps within ~3 seconds.</span></span>
+        </label>
         <select id="fps">
           <option value="0.333" selected>1 frame / 3 sec (default)</option>
           <option value="0.5">1 frame / 2 sec</option>
@@ -268,9 +302,15 @@
     </div>
 
     <div class="checks">
-      <label><input type="checkbox" id="lineups" checked> Include lineups</label>
-      <label><input type="checkbox" id="period-clock" checked> Include period clock</label>
-      <label><input type="checkbox" id="reprocess"> Reprocess (skip extraction) <span class="help-wrap"><span class="help-icon">?</span><span class="help-tip">Re-use existing OCR data from a previous run. Useful if you've already indexed this video once and want to re-run with different options (e.g. toggle lineups or period clock) without waiting for frames to be extracted and OCR'd again.</span></span></label>
+      <label><input type="checkbox" id="lineups" checked> Include lineups
+        <span class="help-wrap"><span class="help-icon">?</span><span class="help-tip">Add jammer and pivot names below each jam chapter entry. Requires 720p+ video. Names are read via OCR and may need manual correction.</span></span>
+      </label>
+      <label><input type="checkbox" id="period-clock" checked> Include period clock
+        <span class="help-wrap"><span class="help-icon">?</span><span class="help-tip">Show the period clock time in brackets after each chapter entry, e.g. [14m06s]. Helps identify the game time for each jam.</span></span>
+      </label>
+      <label><input type="checkbox" id="reprocess"> Reprocess (skip extraction)
+        <span class="help-wrap"><span class="help-icon">?</span><span class="help-tip">Re-use existing OCR data from a previous run. Useful if you've already indexed this video once and want to re-run with different options (e.g. toggle lineups or period clock) without waiting for frames to be extracted and OCR'd again.</span></span>
+      </label>
     </div>
 
     <button class="btn" id="run-btn" onclick="startJob()">Run Indexer</button>
@@ -278,17 +318,12 @@
 
   <!-- Progress -->
   <div class="card" id="progress-section">
-    <div class="phase-label">Phase: <span id="phase-name">Starting...</span></div>
+    <div class="phase-steps" id="phase-steps"></div>
 
+    <div class="phase-label">Current: <span id="phase-name">Starting...</span></div>
     <div class="progress-bar">
       <div class="progress-fill" id="step-fill" style="width:0%"></div>
       <div class="progress-text" id="step-text"></div>
-    </div>
-
-    <div class="phase-label">Overall</div>
-    <div class="progress-bar">
-      <div class="progress-fill" id="overall-fill" style="width:0%"></div>
-      <div class="progress-text" id="overall-text"></div>
     </div>
 
     <div class="log-box" id="log-box"></div>
@@ -306,19 +341,31 @@
 <script>
 const PHASES = ['probe','extract','ocr_right','ocr_left','timeline','clocks','names','output','done'];
 const PHASE_LABELS = {
-  probe: 'Probing video',
-  extract: 'Extracting frames',
-  ocr_right: 'OCR — right scoreboard',
-  ocr_left: 'OCR — left scoreboard',
-  timeline: 'Building timeline',
-  clocks: 'Reading period clocks',
-  names: 'Reading player names',
-  output: 'Writing output',
+  probe: 'Probe video',
+  extract: 'Extract frames',
+  ocr_right: 'OCR right scoreboard',
+  ocr_left: 'OCR left scoreboard',
+  timeline: 'Build timeline',
+  clocks: 'Read period clocks',
+  names: 'Read player names',
+  output: 'Write output',
   done: 'Done',
   error: 'Error',
 };
 
 let eventSource = null;
+
+function buildPhaseSteps() {
+  const container = document.getElementById('phase-steps');
+  container.innerHTML = '';
+  PHASES.forEach(p => {
+    const el = document.createElement('span');
+    el.className = 'phase-step';
+    el.id = 'step-' + p;
+    el.textContent = PHASE_LABELS[p] || p;
+    container.appendChild(el);
+  });
+}
 
 function startJob() {
   const btn = document.getElementById('run-btn');
@@ -330,8 +377,7 @@ function startJob() {
   document.getElementById('log-box').innerHTML = '';
   document.getElementById('step-fill').style.width = '0%';
   document.getElementById('step-fill').classList.remove('done');
-  document.getElementById('overall-fill').style.width = '0%';
-  document.getElementById('overall-fill').classList.remove('done');
+  buildPhaseSteps();
 
   const params = {
     video: document.getElementById('video').value,
@@ -383,7 +429,11 @@ function listenProgress(jobId) {
 
       if (data.phase === 'done') {
         document.getElementById('step-fill').classList.add('done');
-        document.getElementById('overall-fill').classList.add('done');
+        // Mark all steps completed
+        PHASES.forEach(p => {
+          const el = document.getElementById('step-' + p);
+          if (el) { el.className = 'phase-step completed'; }
+        });
         fetchResult(jobId);
       }
     }
@@ -396,6 +446,8 @@ function listenProgress(jobId) {
     document.getElementById('run-btn').textContent = 'Run Indexer';
   };
 }
+
+let lastPhaseIdx = -1;
 
 function updateProgress(data) {
   const { phase, current, total, message } = data;
@@ -410,12 +462,21 @@ function updateProgress(data) {
     document.getElementById('step-text').textContent = total > 1 ? `${current} / ${total}` : '';
   }
 
-  // Overall progress
+  // Update phase step indicators
   const phaseIdx = PHASES.indexOf(phase);
-  if (phaseIdx >= 0) {
-    const overallPct = Math.round(((phaseIdx + 1) / PHASES.length) * 100);
-    document.getElementById('overall-fill').style.width = overallPct + '%';
-    document.getElementById('overall-text').textContent = `Phase ${phaseIdx + 1} / ${PHASES.length}`;
+  if (phaseIdx >= 0 && phaseIdx !== lastPhaseIdx) {
+    // Mark previous phases as completed
+    for (let i = 0; i < phaseIdx; i++) {
+      const el = document.getElementById('step-' + PHASES[i]);
+      if (el) el.className = 'phase-step completed';
+    }
+    // Mark current phase as active
+    const cur = document.getElementById('step-' + phase);
+    if (cur) cur.className = 'phase-step active';
+    // Reset step bar for new phase
+    document.getElementById('step-fill').style.width = '0%';
+    document.getElementById('step-text').textContent = '';
+    lastPhaseIdx = phaseIdx;
   }
 
   addLog(message);
