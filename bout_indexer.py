@@ -332,10 +332,16 @@ def build_timeline(ocr_dir: str, frame_interval: float) -> dict:
     cur_p, cur_j = 0, 0
     for frame, p, j, sec in pj_entries:
         if p > cur_p:
-            cur_p, cur_j = p, 0
-        if p == cur_p and j == cur_j + 1 and j < cur_j + 6:
-            cur_j = j
-            transitions.append({"frame": frame, "p": p, "j": j, "seconds": int(sec)})
+            cur_p = p
+            cur_j = 0
+        if p == cur_p:
+            # Allow first jam of each period to start at any number
+            if cur_j == 0 and j >= 1:
+                cur_j = j
+                transitions.append({"frame": frame, "p": p, "j": j, "seconds": int(sec)})
+            elif j == cur_j + 1 and j < cur_j + 6:
+                cur_j = j
+                transitions.append({"frame": frame, "p": p, "j": j, "seconds": int(sec)})
 
     # --- Build chapter list ---
     chapters = []
@@ -452,7 +458,8 @@ def read_period_clocks(ocr_dir: str, chapters: list, frame_interval: float):
 
     def find_valid_clock(text: str) -> Optional[str]:
         """Extract a valid period clock (0:00 - 30:00) from OCR text."""
-        matches = re.findall(r"(\d{1,2}):(\d{2})", text)
+        # tesseract often reads : as °, -, ., ', etc.
+        matches = re.findall(r"(\d{1,2})[:.°'\-](\d{2})", text)
         for m_str, s_str in matches:
             m_val, s_val = int(m_str), int(s_str)
             if m_val <= 30 and s_val <= 59:
