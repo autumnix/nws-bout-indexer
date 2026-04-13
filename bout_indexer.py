@@ -49,6 +49,125 @@ STATE_KEYWORDS = [
 
 
 # ---------------------------------------------------------------------------
+# Fuzzy roster matching
+# ---------------------------------------------------------------------------
+
+def load_roster(path: str) -> list:
+    """Load a roster file (one name per line), return list of names."""
+    if not path or not os.path.exists(path):
+        return []
+    names = []
+    with open(path) as f:
+        for line in f:
+            name = line.strip()
+            if name and not name.startswith("#"):
+                names.append(name)
+    return names
+
+
+def _edit_distance(a: str, b: str) -> int:
+    """Levenshtein edit distance between two strings."""
+    la, lb = len(a), len(b)
+    if la == 0:
+        return lb
+    if lb == 0:
+        return la
+    prev = list(range(lb + 1))
+    for i in range(1, la + 1):
+        curr = [i] + [0] * lb
+        for j in range(1, lb + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            curr[j] = min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost)
+        prev = curr
+    return prev[lb]
+
+
+def fuzzy_match_name(ocr_text: str, roster: list, threshold: float = 0.45) -> Optional[str]:
+    """
+    Match noisy OCR text against a roster of known names.
+
+    Uses substring matching first (for when the OCR concatenates names),
+    then falls back to edit distance on the full string.
+
+    Args:
+        threshold: Maximum edit distance as a fraction of name length.
+    Returns:
+        Best matching roster name, or None if no good match.
+    """
+    if not roster or not ocr_text.strip():
+        return None
+
+    ocr_lower = ocr_text.lower().strip()
+
+    # Pass 1: exact substring match (handles "HausstheBoss" containing "hauss the boss")
+    for name in roster:
+        name_compact = name.lower().replace(" ", "").replace("'", "")
+        ocr_compact = ocr_lower.replace(" ", "").replace("'", "")
+        if name_compact in ocr_compact or ocr_compact in name_compact:
+            return name
+
+    # Pass 2: edit distance on the raw string
+    best_name = None
+    best_dist = float("inf")
+    for name in roster:
+        dist = _edit_distance(ocr_lower, name.lower())
+        max_allowed = int(len(name) * threshold)
+        if dist < best_dist and dist <= max_allowed:
+            best_dist = dist
+            best_name = name
+
+    return best_name
+
+
+def match_names_to_roster(raw_names: list, roster: list) -> list:
+    """Match a list of raw OCR name strings against a roster."""
+    if not roster:
+        return raw_names
+    matched = []
+    for raw in raw_names:
+        m = fuzzy_match_name(raw, roster)
+        matched.append(m if m else raw)
+    return matched
+
+
+def find_roster_names_in_text(text: str, roster: list) -> list:
+    """
+    Scan raw OCR text for roster names using fuzzy substring matching.
+
+    Handles concatenated names like "HausstheBoss OliviaShootin'John"
+    by checking if any roster name (compacted) appears as a substring.
+    Returns roster names found, in order of appearance.
+    """
+    if not roster or not text.strip():
+        return []
+
+    text_compact = text.lower().replace(" ", "").replace("'", "").replace("-", "")
+    found = []
+
+    for name in roster:
+        name_compact = name.lower().replace(" ", "").replace("'", "").replace("-", "")
+        # Check if this name appears as a substring (allows for OCR noise between chars)
+        if name_compact in text_compact:
+            # Find approximate position for ordering
+            pos = text_compact.index(name_compact)
+            found.append((pos, name))
+            continue
+
+        # Try with up to 2 char edits in a sliding window
+        window = len(name_compact)
+        for i in range(len(text_compact) - window + 1):
+            chunk = text_compact[i:i + window]
+            dist = _edit_distance(chunk, name_compact)
+            if dist <= max(2, int(window * 0.3)):
+                found.append((i, name))
+                break
+
+    # Sort by position and deduplicate
+    found.sort(key=lambda x: x[0])
+    return [name for _, name in found]
+
+
+# ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
 
@@ -587,6 +706,76 @@ def read_names(ocr_dir: str, timeline: dict, frame_interval: float):
         ch["team2_names"] = best_names["team2"]
 
 
+def _apply_roster_matching(ocr_dir, timeline, frame_interval, roster1, roster2):
+    """Re-scan raw OCR data using roster-based name finding for better accuracy."""
+    left_ocr = {}
+    left_path = os.path.join(ocr_dir, "left_ocr.txt")
+    if not os.path.exists(left_path):
+        return
+
+    with open(left_path) as f:
+        for line in f:
+            parts = line.strip().split("|", 1)
+            if len(parts) < 2:
+                continue
+            frame = int(parts[0])
+            left_ocr[frame] = parts[1]
+
+    jams = timeline["jams"]
+
+    for ch in timeline["chapters"]:
+        if ch["type"] != "JAM":
+            continue
+
+        jam_start = int(ch["jam_start_seconds"] / frame_interval)
+        jam_end = jam_start + 60
+        for j in jams:
+            if j["seconds"] > ch["jam_start_seconds"]:
+                jam_end = int(j["seconds"] / frame_interval)
+                break
+
+        best_t1 = ch.get("team1_names", [])
+        best_t2 = ch.get("team2_names", [])
+        best_count = len(best_t1) + len(best_t2)
+
+        for f in range(jam_start, min(jam_end, jam_start + 40)):
+            if f not in left_ocr:
+                continue
+
+            text = left_ocr[f]
+            if "HIGHLIGHT" in text.upper():
+                continue
+
+            # Split into lines (team rows)
+            lines = [l.strip() for l in text.split("~") if l.strip() and len(l.strip()) > 3]
+
+            t1_names = []
+            t2_names = []
+            for i, line_text in enumerate(lines):
+                roster = roster1 if not t1_names else roster2
+                found = find_roster_names_in_text(line_text, roster)
+                if found:
+                    if not t1_names:
+                        t1_names = found
+                    elif not t2_names:
+                        t2_names = found
+
+            count = len(t1_names) + len(t2_names)
+            if count > best_count:
+                best_count = count
+                best_t1 = t1_names
+                best_t2 = t2_names
+
+        # Also try matching the old parsed names against rosters as fallback
+        if not best_t1 and ch.get("team1_names") and roster1:
+            best_t1 = match_names_to_roster(ch["team1_names"], roster1)
+        if not best_t2 and ch.get("team2_names") and roster2:
+            best_t2 = match_names_to_roster(ch["team2_names"], roster2)
+
+        ch["team1_names"] = best_t1
+        ch["team2_names"] = best_t2
+
+
 # ---------------------------------------------------------------------------
 # Phase 6: Output formatting
 # ---------------------------------------------------------------------------
@@ -717,6 +906,8 @@ def run_pipeline(
     include_period_clock: bool = True,
     team1: str = "Team 1",
     team2: str = "Team 2",
+    roster1_path: str = "",
+    roster2_path: str = "",
     reprocess: bool = False,
     progress_cb=None,
 ) -> str:
@@ -781,6 +972,15 @@ def run_pipeline(
     if include_lineups:
         emit("names", 0, 1, "Reading player names...")
         read_names(ocr_dir, timeline, frame_interval)
+
+        # Apply roster fuzzy matching if rosters provided
+        r1 = load_roster(roster1_path)
+        r2 = load_roster(roster2_path)
+        if r1 or r2:
+            emit("names", 1, 1,
+                 f"Matching names to rosters ({len(r1)} + {len(r2)} players)...")
+            _apply_roster_matching(ocr_dir, timeline, frame_interval, r1, r2)
+
         emit("names", 1, 1, "Player names done.")
 
     # Auto-detect team names if not provided
@@ -836,6 +1036,8 @@ def main():
     parser.add_argument("--reprocess", action="store_true", help="Reuse existing OCR data")
     parser.add_argument("--team1", type=str, default=None, help="Team 1 name (top row)")
     parser.add_argument("--team2", type=str, default=None, help="Team 2 name (bottom row)")
+    parser.add_argument("--roster1", type=str, default="", help="Team 1 roster file (one name per line)")
+    parser.add_argument("--roster2", type=str, default="", help="Team 2 roster file (one name per line)")
 
     args = parser.parse_args()
 
@@ -869,6 +1071,8 @@ def main():
         include_period_clock=not args.no_period_clock,
         team1=args.team1 or "Team 1",
         team2=args.team2 or "Team 2",
+        roster1_path=args.roster1 or "",
+        roster2_path=args.roster2 or "",
         reprocess=args.reprocess,
     )
 

@@ -96,6 +96,8 @@ class Handler(SimpleHTTPRequestHandler):
             "include_period_clock": params.get("include_period_clock", True),
             "team1": params.get("team1") or "Team 1",
             "team2": params.get("team2") or "Team 2",
+            "roster1_path": params.get("roster1", ""),
+            "roster2_path": params.get("roster2", ""),
             "reprocess": params.get("reprocess", False),
         }
 

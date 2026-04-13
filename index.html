@@ -290,6 +290,21 @@
 
     <div class="row">
       <div>
+        <label for="roster1">Team 1 roster
+          <span class="help-wrap"><span class="help-icon">?</span><span class="help-tip">Path to a text file with one player name per line for the top team. Used to fuzzy-match noisy OCR output to correct names. Leave blank to skip roster matching.</span></span>
+        </label>
+        <input type="text" id="roster1" placeholder="optional — path to roster .txt file">
+      </div>
+      <div>
+        <label for="roster2">Team 2 roster
+          <span class="help-wrap"><span class="help-icon">?</span><span class="help-tip">Path to a text file with one player name per line for the bottom team. Used to fuzzy-match noisy OCR output to correct names. Leave blank to skip roster matching.</span></span>
+        </label>
+        <input type="text" id="roster2" placeholder="optional — path to roster .txt file">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
         <label for="fps">Frame sampling
           <span class="help-wrap"><span class="help-icon">?</span><span class="help-tip">How often to sample frames from the video. Lower rates are faster but less precise. 1 frame / 3 sec is usually sufficient for chapter timestamps within ~3 seconds.</span></span>
         </label>
@@ -383,6 +398,8 @@ function startJob() {
     video: document.getElementById('video').value,
     team1: document.getElementById('team1').value,
     team2: document.getElementById('team2').value,
+    roster1: document.getElementById('roster1').value,
+    roster2: document.getElementById('roster2').value,
     fps: parseFloat(document.getElementById('fps').value),
     include_lineups: document.getElementById('lineups').checked,
     include_period_clock: document.getElementById('period-clock').checked,
